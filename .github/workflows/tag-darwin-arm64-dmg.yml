@@ -1,0 +1,137 @@
+name: Build Darwin ARM64 DMG on Tag
+
+on:
+  create:
+
+permissions:
+  contents: read
+
+jobs:
+  build-darwin-arm64-dmg:
+    if: github.event.ref_type == 'tag'
+    runs-on: macos-14
+    timeout-minutes: 240
+    env:
+      CI: true
+      VSCODE_ARCH: arm64
+      npm_config_arch: arm64
+      ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+      GYP_DEFINES: kerberos_use_rtld=false
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+          ref: refs/tags/${{ github.event.ref }}
+
+      - name: Validate runner architecture
+        run: |
+          set -euo pipefail
+          echo "tag=${{ github.event.ref }}"
+          echo "sha=$(git rev-parse HEAD)"
+          echo "commit_date=$(git log -1 --format=%cI HEAD)"
+          echo "runner_arch=$(uname -m)"
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "Expected an arm64 macOS runner, got $(uname -m)" >&2
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Initialize Git LFS
+        run: |
+          set -euo pipefail
+          git lfs install --local
+          git lfs pull
+
+      - name: Derive build metadata
+        id: build-meta
+        run: |
+          set -euo pipefail
+          tag_name='${{ github.event.ref }}'
+          quality='stable'
+          case "$tag_name" in
+            *-insider)
+              quality='insider'
+              ;;
+            *-exploration)
+              quality='exploration'
+              ;;
+          esac
+
+          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
+          echo "quality=$quality" >> "$GITHUB_OUTPUT"
+          echo "build_dir=$(dirname "$GITHUB_WORKSPACE")" >> "$GITHUB_OUTPUT"
+          echo "dmg_out=$RUNNER_TEMP/dmg-out" >> "$GITHUB_OUTPUT"
+
+      - name: Patch product quality
+        env:
+          BUILD_QUALITY: ${{ steps.build-meta.outputs.quality }}
+        run: |
+          set -euo pipefail
+          tmp_file="$(mktemp)"
+          jq --arg quality "$BUILD_QUALITY" '
+            if $quality == "stable" then
+              del(.quality)
+            else
+              .quality = $quality
+            end
+          ' product.json > "$tmp_file"
+          mv "$tmp_file" product.json
+          jq '{ nameShort, nameLong, applicationName, quality }' product.json
+
+      - name: Install build prerequisites
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade setuptools
+
+      - name: Install dependencies
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - name: Build VS Code for Darwin ARM64
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VSCODE_QUALITY: ${{ steps.build-meta.outputs.quality }}
+        run: |
+          set -euo pipefail
+          npm run gulp vscode-darwin-arm64-min-ci
+
+      - name: Create DMG
+        env:
+          VSCODE_QUALITY: ${{ steps.build-meta.outputs.quality }}
+        run: |
+          set -euo pipefail
+          mkdir -p '${{ steps.build-meta.outputs.dmg_out }}'
+          node build/darwin/create-dmg.ts '${{ steps.build-meta.outputs.build_dir }}' '${{ steps.build-meta.outputs.dmg_out }}'
+          python3 build/darwin/patch-dmg.py '${{ steps.build-meta.outputs.dmg_out }}/VSCode-darwin-arm64.dmg' resources/darwin/disk.icns
+          ls -lh '${{ steps.build-meta.outputs.dmg_out }}/VSCode-darwin-arm64.dmg'
+
+      - name: Verify built metadata
+        run: |
+          set -euo pipefail
+          app_product_json="$(find '${{ steps.build-meta.outputs.build_dir }}/VSCode-darwin-arm64' -path '*/Contents/Resources/app/product.json' -print -quit)"
+          if [ -z "$app_product_json" ]; then
+            echo "Built app product.json not found" >&2
+            exit 1
+          fi
+
+          jq '{ version, commit, date }' "$app_product_json"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VSCode-darwin-arm64-dmg-${{ github.event.ref }}
+          path: ${{ steps.build-meta.outputs.dmg_out }}/VSCode-darwin-arm64.dmg
+          if-no-files-found: error
+          retention-days: 30
