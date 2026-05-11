@@ -115,7 +115,7 @@ jobs:
       - name: Install build prerequisites
         run: |
           set -euo pipefail
-          python3 -m pip install --upgrade setuptools
+          python3 -m pip install --user --break-system-packages --upgrade setuptools
 
       - name: Install dependencies
         env:
