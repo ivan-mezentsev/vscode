@@ -1,14 +1,15 @@
 name: Build Darwin ARM64 DMG on Tag
 
 on:
-  create:
+  push:
+    tags:
+      - '*'
 
 permissions:
   contents: read
 
 jobs:
   build-darwin-arm64-dmg:
-    if: github.event.ref_type == 'tag'
     runs-on: macos-14
     timeout-minutes: 240
     env:
@@ -25,12 +26,12 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
-          ref: refs/tags/${{ github.event.ref }}
+          ref: ${{ github.ref }}
 
       - name: Validate runner architecture
         run: |
           set -euo pipefail
-          echo "tag=${{ github.event.ref }}"
+          echo "tag=${{ github.ref_name }}"
           echo "sha=$(git rev-parse HEAD)"
           echo "commit_date=$(git log -1 --format=%cI HEAD)"
           echo "runner_arch=$(uname -m)"
@@ -55,7 +56,7 @@ jobs:
         id: build-meta
         run: |
           set -euo pipefail
-          tag_name='${{ github.event.ref }}'
+          tag_name='${{ github.ref_name }}'
           quality='stable'
           case "$tag_name" in
             *-insider)
@@ -66,8 +67,32 @@ jobs:
               ;;
           esac
 
+          base_version="$(jq -r '.version' package.json)"
+          version="$base_version"
+          if [ "$quality" != 'stable' ]; then
+            version="$base_version-$quality"
+          fi
+
+          source_commit="$(git rev-parse HEAD)"
+          source_date="$(git log -1 --format=%cI HEAD)"
+          tag_contents="$(git for-each-ref "refs/tags/$tag_name" --format='%(contents)')"
+
+          override_commit="$(printf '%s\n' "$tag_contents" | sed -n 's/^source-commit:[[:space:]]*//p' | head -n 1)"
+          override_date="$(printf '%s\n' "$tag_contents" | sed -n 's/^source-date:[[:space:]]*//p' | head -n 1)"
+
+          if [ -n "$override_commit" ]; then
+            source_commit="$override_commit"
+          fi
+
+          if [ -n "$override_date" ]; then
+            source_date="$override_date"
+          fi
+
           echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
           echo "quality=$quality" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_commit=$source_commit" >> "$GITHUB_OUTPUT"
+          echo "source_date=$source_date" >> "$GITHUB_OUTPUT"
           echo "build_dir=$(dirname "$GITHUB_WORKSPACE")" >> "$GITHUB_OUTPUT"
           echo "dmg_out=$RUNNER_TEMP/dmg-out" >> "$GITHUB_OUTPUT"
 
@@ -107,6 +132,36 @@ jobs:
           set -euo pipefail
           npm run gulp vscode-darwin-arm64-min-ci
 
+      - name: Override built metadata
+        env:
+          BUILD_VERSION: ${{ steps.build-meta.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.build-meta.outputs.source_commit }}
+          SOURCE_DATE: ${{ steps.build-meta.outputs.source_date }}
+        run: |
+          set -euo pipefail
+          app_root='${{ steps.build-meta.outputs.build_dir }}/VSCode-darwin-arm64'
+          app_product_json="$(find "$app_root" -path '*/Contents/Resources/app/product.json' -print -quit)"
+          app_package_json="$(find "$app_root" -path '*/Contents/Resources/app/package.json' -print -quit)"
+
+          if [ -z "$app_product_json" ]; then
+            echo "Built app product.json not found" >&2
+            exit 1
+          fi
+
+          tmp_product="$(mktemp)"
+          jq --arg version "$BUILD_VERSION" --arg commit "$SOURCE_COMMIT" --arg date "$SOURCE_DATE" '
+            .version = $version
+            | .commit = $commit
+            | .date = $date
+          ' "$app_product_json" > "$tmp_product"
+          mv "$tmp_product" "$app_product_json"
+
+          if [ -n "$app_package_json" ]; then
+            tmp_package="$(mktemp)"
+            jq --arg version "$BUILD_VERSION" '.version = $version' "$app_package_json" > "$tmp_package"
+            mv "$tmp_package" "$app_package_json"
+          fi
+
       - name: Create DMG
         env:
           VSCODE_QUALITY: ${{ steps.build-meta.outputs.quality }}
@@ -131,7 +186,7 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VSCode-darwin-arm64-dmg-${{ github.event.ref }}
+          name: VSCode-darwin-arm64-dmg-${{ github.ref_name }}
           path: ${{ steps.build-meta.outputs.dmg_out }}/VSCode-darwin-arm64.dmg
           if-no-files-found: error
           retention-days: 30
