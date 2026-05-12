@@ -124,6 +124,13 @@ jobs:
           set -euo pipefail
           npm ci
 
+      - name: Install Copilot extension dependencies
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          npm ci --prefix extensions/copilot
+
       - name: Build VS Code for Darwin ARM64
         env:
           GITHUB_TOKEN: ${{ github.token }}
