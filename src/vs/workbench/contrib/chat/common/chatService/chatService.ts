@@ -637,6 +637,11 @@ export interface IChatToolInvocation {
 	 * `'input'` to `'terminal'` when terminal content arrives).
 	 */
 	readonly toolSpecificDataKind: IObservable<string | undefined>;
+	/**
+	 * Observable that increments when presentation-relevant mutable fields on the
+	 * live tool invocation change, allowing the chat UI to invalidate stale rows.
+	 */
+	readonly renderVersion: IObservable<number>;
 	readonly originMessage: string | IMarkdownString | undefined;
 	readonly invocationMessage: string | IMarkdownString;
 	readonly pastTenseMessage: string | IMarkdownString | undefined;

@@ -92,12 +92,17 @@ export class ChatToolInvocationPart extends Disposable implements IChatContentPa
 		}
 
 		if (toolInvocation.kind === 'toolInvocation') {
-			const initialState = toolInvocation.state.get().type;
-			const initialDataKind = toolInvocation.toolSpecificDataKind.get();
+			let lastState = toolInvocation.state.get().type;
+			let lastDataKind = toolInvocation.toolSpecificDataKind.get();
+			let lastRenderVersion = toolInvocation.renderVersion.get();
 			this._register(autorun(reader => {
-				const stateChanged = toolInvocation.state.read(reader).type !== initialState;
-				const dataKindChanged = toolInvocation.toolSpecificDataKind.read(reader) !== initialDataKind;
-				if (stateChanged || dataKindChanged) {
+				const state = toolInvocation.state.read(reader).type;
+				const dataKind = toolInvocation.toolSpecificDataKind.read(reader);
+				const renderVersion = toolInvocation.renderVersion.read(reader);
+				if (state !== lastState || dataKind !== lastDataKind || renderVersion !== lastRenderVersion) {
+					lastState = state;
+					lastDataKind = dataKind;
+					lastRenderVersion = renderVersion;
 					render();
 				}
 			}));

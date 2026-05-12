@@ -22,11 +22,11 @@ export interface IStreamingToolCallOptions {
 export class ChatToolInvocation implements IChatToolInvocation {
 	public readonly kind: 'toolInvocation' = 'toolInvocation';
 
-	public invocationMessage: string | IMarkdownString;
+	private _invocationMessage: string | IMarkdownString;
 	public readonly originMessage: string | IMarkdownString | undefined;
-	public pastTenseMessage: string | IMarkdownString | undefined;
+	private _pastTenseMessage: string | IMarkdownString | undefined;
 	public confirmationMessages: IToolConfirmationMessages | undefined;
-	public presentation: IPreparedToolInvocation['presentation'];
+	private _presentation: IPreparedToolInvocation['presentation'];
 	public readonly toolId: string;
 	public readonly icon?: ThemeIcon;
 	public source: ToolDataSource;
@@ -39,14 +39,60 @@ export class ChatToolInvocation implements IChatToolInvocation {
 	private _toolSpecificData?: IChatTerminalToolInvocationData | IChatToolInputInvocationData | IChatExtensionsContent | IChatTodoListContent | IChatSubagentToolInvocationData | IChatSimpleToolInvocationData | IChatSearchToolInvocationData | IChatModifiedFilesConfirmationData;
 	private readonly _toolSpecificDataKind = observableValue<string | undefined>(this, undefined);
 	public readonly toolSpecificDataKind: IObservable<string | undefined> = this._toolSpecificDataKind;
+	private readonly _renderVersion = observableValue<number>(this, 0);
+	public readonly renderVersion: IObservable<number> = this._renderVersion;
+
+	public get invocationMessage() {
+		return this._invocationMessage;
+	}
+
+	public set invocationMessage(value: string | IMarkdownString) {
+		if (this._invocationMessage === value) {
+			return;
+		}
+
+		this._invocationMessage = value;
+		this.bumpRenderVersion();
+	}
+
+	public get pastTenseMessage() {
+		return this._pastTenseMessage;
+	}
+
+	public set pastTenseMessage(value: string | IMarkdownString | undefined) {
+		if (this._pastTenseMessage === value) {
+			return;
+		}
+
+		this._pastTenseMessage = value;
+		this.bumpRenderVersion();
+	}
+
+	public get presentation() {
+		return this._presentation;
+	}
+
+	public set presentation(value: IPreparedToolInvocation['presentation']) {
+		if (this._presentation === value) {
+			return;
+		}
+
+		this._presentation = value;
+		this.bumpRenderVersion();
+	}
 
 	public get toolSpecificData() {
 		return this._toolSpecificData;
 	}
 
 	public set toolSpecificData(value: typeof this._toolSpecificData) {
+		if (this._toolSpecificData === value) {
+			return;
+		}
+
 		this._toolSpecificData = value;
 		this._toolSpecificDataKind.set(value?.kind, undefined);
+		this.bumpRenderVersion();
 	}
 
 	private readonly _progress = observableValue<{ message?: string | IMarkdownString; progress: number | undefined }>(this, { progress: 0 });
@@ -55,6 +101,10 @@ export class ChatToolInvocation implements IChatToolInvocation {
 	// Streaming-related observables
 	private readonly _partialInput = observableValue<unknown>(this, undefined);
 	private readonly _streamingMessage = observableValue<string | IMarkdownString | undefined>(this, undefined);
+
+	private bumpRenderVersion(): void {
+		this._renderVersion.set(this._renderVersion.get() + 1, undefined);
+	}
 
 	public get state(): IObservable<IChatToolInvocation.State> {
 		return this._state;
@@ -92,11 +142,11 @@ export class ChatToolInvocation implements IChatToolInvocation {
 		} else if (startOptions.startInCancelled) {
 			defaultMessage = startOptions.cancelReasonMessage ?? localize('toolDeniedMessage', "Tool \"{0}\" was denied", toolData.displayName);
 		}
-		this.invocationMessage = preparedInvocation?.invocationMessage ?? defaultMessage;
-		this.pastTenseMessage = preparedInvocation?.pastTenseMessage;
+		this._invocationMessage = preparedInvocation?.invocationMessage ?? defaultMessage;
+		this._pastTenseMessage = preparedInvocation?.pastTenseMessage;
 		this.originMessage = preparedInvocation?.originMessage;
 		this.confirmationMessages = preparedInvocation?.confirmationMessages;
-		this.presentation = preparedInvocation?.presentation;
+		this._presentation = preparedInvocation?.presentation;
 		this.toolSpecificData = preparedInvocation?.toolSpecificData;
 		this.toolId = toolData.id;
 		this.icon = preparedInvocation?.icon ?? (toolData.icon && ThemeIcon.isThemeIcon(toolData.icon) ? toolData.icon : undefined);
@@ -175,6 +225,7 @@ export class ChatToolInvocation implements IChatToolInvocation {
 			return; // Only update in streaming state
 		}
 		this._streamingMessage.set(message, undefined);
+		this.bumpRenderVersion();
 	}
 
 	/**
@@ -184,6 +235,7 @@ export class ChatToolInvocation implements IChatToolInvocation {
 	 */
 	public notifyToolSpecificDataChanged(): void {
 		const current = this._state.get();
+		this.bumpRenderVersion();
 		this._state.set({ ...current }, undefined);
 	}
 

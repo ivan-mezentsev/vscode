@@ -906,6 +906,7 @@ export class Response extends AbstractResponse implements IDisposable {
 		} else if (progress.kind === 'toolInvocation') {
 			registerAutorunSelfDisposable(this._store, reader => {
 				progress.state.read(reader); // update repr when state changes
+				progress.renderVersion.read(reader); // update when visible tool payload changes in place
 				this._contentChanged(false);
 
 				if (IChatToolInvocation.isComplete(progress, reader)) {
