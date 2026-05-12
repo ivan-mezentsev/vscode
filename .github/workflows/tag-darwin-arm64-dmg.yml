@@ -176,7 +176,7 @@ jobs:
           set -euo pipefail
           mkdir -p '${{ steps.build-meta.outputs.dmg_out }}'
           node build/darwin/create-dmg.ts '${{ steps.build-meta.outputs.build_dir }}' '${{ steps.build-meta.outputs.dmg_out }}'
-          python3 build/darwin/patch-dmg.py '${{ steps.build-meta.outputs.dmg_out }}/VSCode-darwin-arm64.dmg' resources/darwin/disk.icns
+          python3 build/darwin/patch-dmg.py '${{ steps.build-meta.outputs.dmg_out }}/VSCode-darwin-arm64.dmg' resources/darwin/code.icns
           ls -lh '${{ steps.build-meta.outputs.dmg_out }}/VSCode-darwin-arm64.dmg'
 
       - name: Verify built metadata
