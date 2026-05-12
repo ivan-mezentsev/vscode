@@ -137,8 +137,7 @@ jobs:
           VSCODE_QUALITY: ${{ steps.build-meta.outputs.quality }}
         run: |
           set -euo pipefail
-          npm run gulp core-ci
-          npm run gulp vscode-darwin-arm64-min-ci
+          npm run gulp vscode-darwin-arm64-min
 
       - name: Override built metadata
         env:
